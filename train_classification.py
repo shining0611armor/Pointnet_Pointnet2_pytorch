@@ -116,12 +116,15 @@ def main(args):
 
     '''DATA LOADING'''
     log_string('Load dataset ...')
-    data_path = 'data/modelnet40_normal_resampled/'
+    data_path = '/content/Pointnet_Pointnet2_pytorch/'
 
     train_dataset = ModelNetDataLoader(root=data_path, args=args, split='train', process_data=args.process_data)
     test_dataset = ModelNetDataLoader(root=data_path, args=args, split='test', process_data=args.process_data)
     trainDataLoader = torch.utils.data.DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True, num_workers=10, drop_last=True)
     testDataLoader = torch.utils.data.DataLoader(test_dataset, batch_size=args.batch_size, shuffle=False, num_workers=10)
+
+    print(f"Unique train labels: {np.unique(train_dataset.labels)}")
+    print(f"Unique test labels: {np.unique(test_dataset.labels)}")
 
     '''MODEL LOADING'''
     num_class = args.num_category
