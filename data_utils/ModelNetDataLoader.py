@@ -50,7 +50,7 @@ def farthest_point_sample(point, npoint):
     point = point[centroids.astype(np.int32)]
     return point
 
-
+# we  changed this class for h5  version of modelnet40_normal_resampled
 
 
 class ModelNetDataLoader(Dataset):
