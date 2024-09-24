@@ -7,7 +7,12 @@ import os
 import numpy as np
 import warnings
 import pickle
-
+import os
+import h5py
+import numpy as np
+import pickle
+from torch.utils.data import Dataset
+from tqdm import tqdm
 from tqdm import tqdm
 from torch.utils.data import Dataset
 
@@ -46,6 +51,8 @@ def farthest_point_sample(point, npoint):
     return point
 
 
+
+
 class ModelNetDataLoader(Dataset):
     def __init__(self, root, args, split='train', process_data=False):
         self.root = root
@@ -55,82 +62,78 @@ class ModelNetDataLoader(Dataset):
         self.use_normals = args.use_normals
         self.num_category = args.num_category
 
+        # Load the H5 file directly
         if self.num_category == 10:
-            self.catfile = os.path.join(self.root, 'modelnet10_shape_names.txt')
+            self.h5_file = os.path.join(self.root, 'modelnet10_%s.h5' % split)
         else:
-            self.catfile = os.path.join(self.root, 'modelnet40_shape_names.txt')
+            self.h5_file = os.path.join(self.root, 'modelnet40_%s.h5' % split)
 
-        self.cat = [line.rstrip() for line in open(self.catfile)]
-        self.classes = dict(zip(self.cat, range(len(self.cat))))
+        # Open H5 dataset and read data/labels
+        with h5py.File(self.h5_file, 'r') as f:
+            self.data = f['data'][:]  # Point cloud data
+            self.labels = f['label'][:]  # Corresponding labels
 
-        shape_ids = {}
-        if self.num_category == 10:
-            shape_ids['train'] = [line.rstrip() for line in open(os.path.join(self.root, 'modelnet10_train.txt'))]
-            shape_ids['test'] = [line.rstrip() for line in open(os.path.join(self.root, 'modelnet10_test.txt'))]
-        else:
-            shape_ids['train'] = [line.rstrip() for line in open(os.path.join(self.root, 'modelnet40_train.txt'))]
-            shape_ids['test'] = [line.rstrip() for line in open(os.path.join(self.root, 'modelnet40_test.txt'))]
+        # Subtract 1 from labels to shift the range from [1, 40] to [0, 39]
+        self.labels = self.labels - 1
 
-        assert (split == 'train' or split == 'test')
-        shape_names = ['_'.join(x.split('_')[0:-1]) for x in shape_ids[split]]
-        self.datapath = [(shape_names[i], os.path.join(self.root, shape_names[i], shape_ids[split][i]) + '.txt') for i
-                         in range(len(shape_ids[split]))]
-        print('The size of %s data is %d' % (split, len(self.datapath)))
-
-        if self.uniform:
-            self.save_path = os.path.join(root, 'modelnet%d_%s_%dpts_fps.dat' % (self.num_category, split, self.npoints))
-        else:
-            self.save_path = os.path.join(root, 'modelnet%d_%s_%dpts.dat' % (self.num_category, split, self.npoints))
+        print(f"The size of {split} data is {len(self.data)}")
 
         if self.process_data:
+            # Optional: process and save data for faster future loading
+            if self.uniform:
+                self.save_path = os.path.join(root, 'modelnet%d_%s_%dpts_fps.dat' % (self.num_category, split, self.npoints))
+            else:
+                self.save_path = os.path.join(root, 'modelnet%d_%s_%dpts.dat' % (self.num_category, split, self.npoints))
+
             if not os.path.exists(self.save_path):
-                print('Processing data %s (only running in the first time)...' % self.save_path)
-                self.list_of_points = [None] * len(self.datapath)
-                self.list_of_labels = [None] * len(self.datapath)
+                print(f'Processing data {self.save_path} (only running the first time)...')
+                self.list_of_points = []
+                self.list_of_labels = []
+                for index in tqdm(range(len(self.data)), total=len(self.data)):
+                    point_set = self.data[index]
+                    label = self.labels[index]
 
-                for index in tqdm(range(len(self.datapath)), total=len(self.datapath)):
-                    fn = self.datapath[index]
-                    cls = self.classes[self.datapath[index][0]]
-                    cls = np.array([cls]).astype(np.int32)
-                    point_set = np.loadtxt(fn[1], delimiter=',').astype(np.float32)
-
+                    # If uniform sampling is enabled
                     if self.uniform:
                         point_set = farthest_point_sample(point_set, self.npoints)
                     else:
-                        point_set = point_set[0:self.npoints, :]
+                        point_set = point_set[:self.npoints, :]
 
-                    self.list_of_points[index] = point_set
-                    self.list_of_labels[index] = cls
+                    self.list_of_points.append(point_set)
+                    self.list_of_labels.append(label)
 
+                # Save processed data
                 with open(self.save_path, 'wb') as f:
                     pickle.dump([self.list_of_points, self.list_of_labels], f)
             else:
-                print('Load processed data from %s...' % self.save_path)
+                print(f'Loading processed data from {self.save_path}...')
                 with open(self.save_path, 'rb') as f:
                     self.list_of_points, self.list_of_labels = pickle.load(f)
 
     def __len__(self):
-        return len(self.datapath)
+        return len(self.data)
 
     def _get_item(self, index):
         if self.process_data:
-            point_set, label = self.list_of_points[index], self.list_of_labels[index]
+            point_set = self.list_of_points[index]
+            label = self.list_of_labels[index]
         else:
-            fn = self.datapath[index]
-            cls = self.classes[self.datapath[index][0]]
-            label = np.array([cls]).astype(np.int32)
-            point_set = np.loadtxt(fn[1], delimiter=',').astype(np.float32)
+            point_set = self.data[index]
+            label = self.labels[index]
 
+            # Uniform sampling if enabled
             if self.uniform:
                 point_set = farthest_point_sample(point_set, self.npoints)
             else:
-                point_set = point_set[0:self.npoints, :]
-                
-        point_set[:, 0:3] = pc_normalize(point_set[:, 0:3])
-        if not self.use_normals:
-            point_set = point_set[:, 0:3]
+                point_set = point_set[:self.npoints, :]
 
-        return point_set, label[0]
+        # Normalize the point set
+        point_set[:, 0:3] = pc_normalize(point_set[:, 0:3])
+
+        if not self.use_normals:
+            point_set = point_set[:, 0:3]  # Use only XYZ coordinates
+
+        return point_set, label
 
     def __getitem__(self, index):
         return self._get_item(index)
