@@ -18,125 +18,100 @@ from torch.utils.data import Dataset
 
 warnings.filterwarnings('ignore')
 
+import os
+import h5py
+import numpy as np
+import torch
+from torch.utils.data import Dataset
+
+import os
+import h5py
+import numpy as np
+import torch
+from torch.utils.data import Dataset
 
 def pc_normalize(pc):
     centroid = np.mean(pc, axis=0)
-    pc = pc - centroid
+    pc = pc - centroid  # Center the point cloud
     m = np.max(np.sqrt(np.sum(pc**2, axis=1)))
-    pc = pc / m
+    pc = pc / m  # Scale the point cloud
     return pc
 
-
-def farthest_point_sample(point, npoint):
-    """
-    Input:
-        xyz: pointcloud data, [N, D]
-        npoint: number of samples
-    Return:
-        centroids: sampled pointcloud index, [npoint, D]
-    """
-    N, D = point.shape
-    xyz = point[:,:3]
-    centroids = np.zeros((npoint,))
-    distance = np.ones((N,)) * 1e10
-    farthest = np.random.randint(0, N)
-    for i in range(npoint):
-        centroids[i] = farthest
-        centroid = xyz[farthest, :]
-        dist = np.sum((xyz - centroid) ** 2, -1)
-        mask = dist < distance
-        distance[mask] = dist[mask]
-        farthest = np.argmax(distance, -1)
-    point = point[centroids.astype(np.int32)]
-    return point
-
-# we  changed this class for h5  version of modelnet40_normal_resampled
-
-
 class ModelNetDataLoader(Dataset):
-    def __init__(self, root, args, split='train', process_data=False):
+    def __init__(self, root, args, split='train', process_data=False, data_augmentation=True):
         self.root = root
-        self.npoints = args.num_point
+        self.npoints = 1024  # Set number of points to 1024
         self.process_data = process_data
         self.uniform = args.use_uniform_sample
         self.use_normals = args.use_normals
-        self.num_category = args.num_category
+        self.split = split
+        self.data_augmentation = data_augmentation
+        self.data, self.labels = None, None
 
-        # Load the H5 file directly
-        if self.num_category == 10:
-            self.h5_file = os.path.join(self.root, 'modelnet10_%s.h5' % split)
-        else:
-            self.h5_file = os.path.join(self.root, 'modelnet40_%s.h5' % split)
+        # Load dataset based on the split (train/test)
+        self.data, self.labels = self.load_data(split)
 
-        # Open H5 dataset and read data/labels
-        with h5py.File(self.h5_file, 'r') as f:
-            self.data = f['data'][:]  # Point cloud data
-            self.labels = f['label'][:]  # Corresponding labels
+        # List of class indices
+        self.classes = {i: i for i in range(40)}  # ModelNet40 has 40 classes
 
-        # Subtract 1 from labels to shift the range from [1, 40] to [0, 39]
-        self.labels = self.labels - 1
+    def load_data(self, split):
+        """Load ModelNet data from the extracted h5 files."""
+        all_data = []
+        all_label = []
+        partition_file = 'train_files.txt' if split == 'train' else 'test_files.txt'
+        partition_file_path = os.path.join(self.root, partition_file)
 
-        print(f"The size of {split} data is {len(self.data)}")
+        # Read file paths from train_files.txt or test_files.txt
+        with open(partition_file_path, 'r') as f:
+            h5_files = [line.strip() for line in f.readlines()]
 
-        if self.process_data:
-            # Optional: process and save data for faster future loading
-            if self.uniform:
-                self.save_path = os.path.join(root, 'modelnet%d_%s_%dpts_fps.dat' % (self.num_category, split, self.npoints))
-            else:
-                self.save_path = os.path.join(root, 'modelnet%d_%s_%dpts.dat' % (self.num_category, split, self.npoints))
+        # Load all .h5 files listed in the partition file
+        for h5_file in h5_files:
+            h5_file_path = os.path.join(self.root, h5_file)  # Construct full path to the .h5 file
+            if not os.path.exists(h5_file_path):
+                raise FileNotFoundError(f"H5 file not found: {h5_file_path}")
+            
+            with h5py.File(h5_file_path, 'r') as f:
+                data = f['data'][:].astype('float32')
+                label = f['label'][:].astype('int64')
+            all_data.append(data)
+            all_label.append(label)
 
-            if not os.path.exists(self.save_path):
-                print(f'Processing data {self.save_path} (only running the first time)...')
-                self.list_of_points = []
-                self.list_of_labels = []
-                for index in tqdm(range(len(self.data)), total=len(self.data)):
-                    point_set = self.data[index]
-                    label = self.labels[index]
+        all_data = np.concatenate(all_data, axis=0)
+        all_label = np.concatenate(all_label, axis=0)
+        return all_data, all_label
 
-                    # If uniform sampling is enabled
-                    if self.uniform:
-                        point_set = farthest_point_sample(point_set, self.npoints)
-                    else:
-                        point_set = point_set[:self.npoints, :]
+    def __getitem__(self, index):
+        point_set = self.data[index]
+        cls = self.labels[index]
 
-                    self.list_of_points.append(point_set)
-                    self.list_of_labels.append(label)
+        # Randomly select points (npoints=1024)
+        choice = np.random.choice(point_set.shape[0], self.npoints, replace=True)
+        point_set = point_set[choice, :]
 
-                # Save processed data
-                with open(self.save_path, 'wb') as f:
-                    pickle.dump([self.list_of_points, self.list_of_labels], f)
-            else:
-                print(f'Loading processed data from {self.save_path}...')
-                with open(self.save_path, 'rb') as f:
-                    self.list_of_points, self.list_of_labels = pickle.load(f)
+        # Normalize the point set
+        point_set = pc_normalize(point_set)
+
+        # Apply data augmentation if enabled
+        if self.data_augmentation:
+            theta = np.random.uniform(0, np.pi * 2)
+            rotation_matrix = np.array([[np.cos(theta), -np.sin(theta)], [np.sin(theta), np.cos(theta)]])
+            point_set[:, [0, 2]] = point_set[:, [0, 2]].dot(rotation_matrix)  # Random rotation
+            point_set += np.random.normal(0, 0.02, size=point_set.shape)  # Random jitter
+
+        # Normalize XYZ if not using normals
+        if not self.use_normals:
+            point_set = point_set[:, 0:3]  # Use only XYZ
+
+        point_set = torch.from_numpy(point_set.astype(np.float32))
+        
+        # Ensure cls is a 1D tensor (avoid multi-target issue)
+        cls = torch.tensor(cls).squeeze().long()  # Making sure it's a scalar if it's a single label
+        return point_set, cls
 
     def __len__(self):
         return len(self.data)
 
-    def _get_item(self, index):
-        if self.process_data:
-            point_set = self.list_of_points[index]
-            label = self.list_of_labels[index]
-        else:
-            point_set = self.data[index]
-            label = self.labels[index]
-
-            # Uniform sampling if enabled
-            if self.uniform:
-                point_set = farthest_point_sample(point_set, self.npoints)
-            else:
-                point_set = point_set[:self.npoints, :]
-
-        # Normalize the point set
-        point_set[:, 0:3] = pc_normalize(point_set[:, 0:3])
-
-        if not self.use_normals:
-            point_set = point_set[:, 0:3]  # Use only XYZ coordinates
-
-        return point_set, label
-
-    def __getitem__(self, index):
-        return self._get_item(index)
 
 
 if __name__ == '__main__':
