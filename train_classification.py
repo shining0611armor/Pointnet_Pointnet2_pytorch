@@ -7,6 +7,7 @@ import os
 import sys
 import torch
 import numpy as np
+import random
 
 import datetime
 import logging
@@ -40,6 +41,8 @@ def parse_args():
     parser.add_argument('--use_normals', action='store_true', default=False, help='use normals')
     parser.add_argument('--process_data', action='store_true', default=False, help='save data offline')
     parser.add_argument('--use_uniform_sample', action='store_true', default=False, help='use uniform sampiling')
+    parser.add_argument('--seed', type=int, default=43, help='random seed for reproducibility')
+
     return parser.parse_args()
 
 
@@ -229,7 +232,23 @@ def main(args):
 
     logger.info('End of training...')
 
+def set_seed(seed):
+
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed(seed)
+        torch.cuda.manual_seed_all(seed)
+
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+
 
 if __name__ == '__main__':
     args = parse_args()
+    set_seed(args.seed)  
     main(args)
+
+
+
