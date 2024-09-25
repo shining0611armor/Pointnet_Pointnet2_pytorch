@@ -116,7 +116,7 @@ def main(args):
 
     '''DATA LOADING'''
     log_string('Load dataset ...')
-    data_path = '/content/Pointnet_Pointnet2_pytorch/'
+    data_path = '//content/Pointnet_Pointnet2_pytorch/modelnet40_ply_hdf5_2048'
 
     train_dataset = ModelNetDataLoader(root=data_path, args=args, split='train', process_data=args.process_data)
     test_dataset = ModelNetDataLoader(root=data_path, args=args, split='test', process_data=args.process_data)
