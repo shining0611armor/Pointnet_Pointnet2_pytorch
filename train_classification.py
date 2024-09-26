@@ -41,7 +41,7 @@ def parse_args():
     parser.add_argument('--use_normals', action='store_true', default=False, help='use normals')
     parser.add_argument('--process_data', action='store_true', default=False, help='save data offline')
     parser.add_argument('--use_uniform_sample', action='store_true', default=False, help='use uniform sampiling')
-    parser.add_argument('--seed', type=int, default=43, help='random seed for reproducibility')
+    parser.add_argument('--seed', type=int, default=10, help='random seed for reproducibility')
 
     return parser.parse_args()
 
