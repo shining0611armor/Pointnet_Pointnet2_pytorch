@@ -16,7 +16,6 @@ import provider
 import importlib
 import shutil
 import argparse
-from timm.scheduler import CosineLRScheduler
 from pathlib import Path
 from tqdm import tqdm
 from data_utils.ModelNetDataLoader import ModelNetDataLoader
@@ -47,6 +46,12 @@ def parse_args():
     parser.add_argument('--severity', default=5, help='severity for corruption dataset')
     parser.add_argument('--online', default=True, help='online training setting')
     parser.add_argument('--grad_steps', default=1, help='if we train online, we have to set this to one')
+    parser.add_argument('--split', type=str, default='test', help='Data split to use: train/test/val')
+    parser.add_argument('--debug', action='store_true', help='Use debug mode with a small dataset')
+    parser.add_argument('--shuffle', action='store_true', help='Shuffle the dataset during loading')
+    parser.add_argument('--disable_bn_adaptation', action='store_true', help='Disable batch normalization adaptation')
+    parser.add_argument('--stride_step', type=int, default=1, help='Stride step for logging or operations')
+    parser.add_argument('--batch_size_tta', type=int, default=1, help='batch size in training')
 
     return parser.parse_args()
 
@@ -101,7 +106,9 @@ def inplace_relu(m):
 
 
 def main(args):
-
+    def log_string(str):
+        logger.info(str)
+        print(str)
     '''HYPER PARAMETER'''
     os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu
 
@@ -133,9 +140,7 @@ def main(args):
     log_string('PARAMETER ...')
     log_string(args)
 
-    def log_string(str):
-        logger.info(str)
-        print(str)
+
 
     '''HYPER PARAMETER'''
     os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu
@@ -210,13 +215,16 @@ def main(args):
                 criterion = model.get_loss()
                 classifier.apply(inplace_relu)
 
-                if not args.use_cpu:
-                    base_model = base_model.cuda()
-                    criterion = criterion.cuda()
+
 
                 args.grad_steps = 1
                 model = importlib.import_module(args.model)
                 base_model = model.get_model(num_class, normal_channel=args.use_normals)
+                
+                if not args.use_cpu:
+                    base_model = base_model.cuda()
+                    criterion = criterion.cuda()
+
                 criterion = model.get_loss()
                 base_model.apply(inplace_relu)
 
@@ -253,11 +261,10 @@ def main(args):
                         #points = misc.fps(points, npoints)
                     else:
                         raise NotImplementedError
-
                     # make a batch
                     if idx % args.stride_step == 0 or idx == len(tta_loader) - 1:
-                        points = [points for _ in range(args.batch_size_tta)]
-                        points = torch.squeeze(torch.vstack(points))
+                        #points = [points for _ in range(args.batch_size_tta)]
+                        #points = torch.squeeze(torch.vstack(points))
                         '''
                         points = points.data.numpy()
                         points = provider.random_point_dropout(points)
@@ -268,7 +275,7 @@ def main(args):
                         '''
                         if not args.use_cpu:
                             points, target = points.cuda(), labels.cuda()
-
+                        print(points.shape,'1')
                         pred, trans_feat = base_model(points)
                         loss = criterion(pred, labels.long(), trans_feat)
                         loss = loss.mean()
