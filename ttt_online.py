@@ -265,7 +265,6 @@ def main(args):
                     if dataset_name == 'modelnet':
                         points = data.cuda()
                         points = points.permute(0, 2, 1)  # Now the shape will be [1, 3, 1024]
-                        print(points)
                         labels = labels.cuda()  # Move labels to GPU
 
                         #points = misc.fps(points, npoints)
@@ -285,7 +284,6 @@ def main(args):
                         '''
                         if not args.use_cpu:
                             points, target = points.cuda(), labels.cuda()
-                        print(points.shape,'1')
                         pred, trans_feat = base_model(points)
                         loss = criterion(pred, labels.long(), trans_feat)
                         loss = loss.mean()
@@ -311,8 +309,8 @@ def main(args):
                 # now inferring on this one sample
                 base_model.eval()
                 points = data.cuda()
-                labels = labels.cuda()
-                #points = misc.fps(points, npoints)
+                points = points.permute(0, 2, 1)  # Now the shape will be [1, 3, 1024]
+                labels = labels.cuda()  # Move labels to GPU                #points = misc.fps(points, npoints)
                 logits, trans_feat = base_model(points)
                 target = labels.view(-1)
                 pred = logits.argmax(-1).view(-1)
