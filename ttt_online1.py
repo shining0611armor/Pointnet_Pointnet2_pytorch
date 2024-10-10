@@ -241,7 +241,7 @@ def main(args):
         optimizer = torch.optim.SGD(base_model.parameters(), lr=0.01, momentum=0.9)
 
 
-
+    severity_final_accuracy = {}
 
     for args.severity in level:
         for corr_id, args.corruption in enumerate(corruptions):
@@ -351,8 +351,12 @@ def main(args):
             test_label = torch.cat(test_label, dim=0)
             acc = (test_pred == test_label).sum() / float(test_label.size(0)) * 100.
             log_string(f'\n\n######## Final Accuracy ::: {args.corruption} ::: {acc} ########\n\n')
- 
+            severity_final_accuracy[args.corruption] = acc
+    #printing final accuracy of all corruption kinds    
+    log_string('------------------------------train finished -----------------------------')
 
+    for corr_id, args.corruption in enumerate(corruptions):
+        log_string(f'\n\n######## Final Accuracy ::: {args.corruption} ::: {severity_final_accuracy[args.corruption]} ########\n\n')
 
 
 if __name__ == '__main__':
