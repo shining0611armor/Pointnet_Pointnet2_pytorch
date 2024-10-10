@@ -267,10 +267,8 @@ def main(args):
     log_string('------------------------------train finished -----------------------------')
     for _, args.corruption in enumerate(corruptions):
         log_string(f'\n\n######## Final Accuracy ::: {args.corruption} ::: {severity_final_accuracy[args.corruption]} ########\n\n')
-        final_mean_accuracy = np.mean(list(severity_final_accuracy.values()))
-        log_string(f' mean accuracy {final_mean_accuracy}')
-
-
+        final_mean_accuracy = np.mean([accuracy.cpu().item() for accuracy in severity_final_accuracy.values()])
+    log_string(f' mean accuracy {final_mean_accuracy}')
 
 if __name__ == '__main__':
     args = parse_args()
